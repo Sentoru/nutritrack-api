@@ -1,0 +1,10 @@
+STRESS TEST LOG - 2026-04-30 11:20:55.932157
+Total Requests: 1000
+Thành công: 1000
+Thất bại: 0
+Thời gian tổng: 7.89 giây
+Tốc độ trung bình: 7.87 ms/request
+Tốc độ nhanh nhất: 5.00 ms
+Tốc độ chậm nhất: 63.05 ms
+P99 Latency: 22.83 ms
+RAM đỉnh (Peak): 0.11 MB

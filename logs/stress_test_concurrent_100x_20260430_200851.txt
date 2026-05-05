@@ -1,0 +1,11 @@
+STRESS TEST CONCURRENT - CONCURRENCY: 100
+Thời gian: 2026-04-30 20:08:51.800932
+Total Requests: 3000
+Successful: 3000
+Failed: 0
+Total Time: 5.57s
+Throughput: 538.36 req/s
+Avg Latency: 157.04 ms
+P99 Latency: 589.36 ms
+Max Latency: 668.91 ms
+RAM Peak: 12.74 MB
