@@ -1,5 +1,5 @@
 from typing import Optional, Literal, List
-from fastapi import FastAPI, HTTPException, Header, Security
+from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timedelta, timezone
@@ -87,15 +87,12 @@ except Exception as e:
 # =====================
 # AUTH HELPER
 # =====================
-def get_user_id_from_token(authorization: str) -> str:
+def get_user_id_from_token(credentials: HTTPAuthorizationCredentials) -> str:
     """
-    Giải mã JWT từ Supabase Auth.
-    Header format: "Bearer <token>
+    Giải mã JWT từ Supabase Auth qua HTTPBearer.
     """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authorization header thiếu hoặc không hợp lệ.")
     
-    token = authorization.split(" ")[1]
+    token = credentials.credentials
 
     try:
         jwks_client = PyJWKClient(SUPABASE_JWKS_URL)
@@ -304,9 +301,9 @@ Lưu kết quả prediction vào database sau khi user xác nhận.
 )
 def save_prediction(
     request: SavePredictionRequest,
-    authorization: str = Header(..., description="Bearer <supabase_jwt_token>")
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
 ):
-    user_id = get_user_id_from_token(authorization)
+    user_id = get_user_id_from_token(credentials)
     now = datetime.now(timezone.utc)
     evaluation_date = now + timedelta(days=7)
  
@@ -353,9 +350,9 @@ Lấy toàn bộ lịch sử predictions của user đang đăng nhập.
     }
 )
 def get_history(
-    authorization: str = Header(..., description="Bearer <supabase_jwt_token>")
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
 ):
-    user_id = get_user_id_from_token(authorization)
+    user_id = get_user_id_from_token(credentials)
  
     try:
         result = supabase.table("predictions") \
