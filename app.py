@@ -150,8 +150,8 @@ class PredictResponse(BaseModel):
     confidence: str = Field(description="Mức độ tin cậy của dự đoán: 'medium' cho 5 features, 'high' cho 7 features")
 
 class SavePredictionRequest(BaseModel):
-    predicted_calories: int = Field(..., gt=0, description="Calories từ /predict/calories - tự động làm tròn thành int", example=[245.67])
-    features_used: Literal[5, 7] = Field(..., description="Số features đã dùng khi predict", example=[7])
+    predicted_calories: int = Field(..., gt=0, description="Calories từ /predict/calories - tự động làm tròn thành int", example=245.67)
+    features_used: Literal[5, 7] = Field(..., description="Số features đã dùng khi predict", example=7)
 
     @field_validator("predicted_calories", mode="before")
     @classmethod
