@@ -156,6 +156,8 @@ class SavePredictionRequest(BaseModel):
     @field_validator("predicted_calories", mode="before")
     @classmethod
     def coerce_to_int(cls, v):
+        if isinstance(v, list):
+            v = v[0]
         return round(float(v))
 
 class SavePredictionResponse(BaseModel):
