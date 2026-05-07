@@ -156,8 +156,6 @@ class SavePredictionRequest(BaseModel):
     @field_validator("predicted_calories", mode="before")
     @classmethod
     def coerce_to_int(cls, v):
-        if isinstance(v, list):
-            v = v[0]
         return round(float(v))
 
 class SavePredictionResponse(BaseModel):
@@ -306,9 +304,9 @@ Lưu kết quả prediction vào database sau khi user xác nhận.
 )
 def save_prediction(
     request: SavePredictionRequest,
-    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
+    authorization: str = Header(..., description="Bearer <supabase_jwt_token>")
 ):
-    user_id = get_user_id_from_token(credentials)
+    user_id = get_user_id_from_token(authorization)
     now = datetime.now(timezone.utc)
     evaluation_date = now + timedelta(days=7)
  
@@ -355,9 +353,9 @@ Lấy toàn bộ lịch sử predictions của user đang đăng nhập.
     }
 )
 def get_history(
-    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
+    authorization: str = Header(..., description="Bearer <supabase_jwt_token>")
 ):
-    user_id = get_user_id_from_token(credentials)
+    user_id = get_user_id_from_token(authorization)
  
     try:
         result = supabase.table("predictions") \
