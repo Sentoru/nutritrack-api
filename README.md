@@ -1,1 +1,1 @@
-API to predict calories (for project)
+API for tracking and health management (project)
