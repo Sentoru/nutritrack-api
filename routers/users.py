@@ -11,7 +11,6 @@ from database import supabase
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
-
 # -- Schemas -------------------------------------------------------------------
 
 class UserProfileResponse(BaseModel):
@@ -26,7 +25,6 @@ class UserProfileResponse(BaseModel):
     goal: Optional[str]
     updated_at: Optional[str]
 
-
 class UpdateProfileRequest(BaseModel):
     full_name: Optional[str] = Field(None, description="Họ tên")
     gender: Optional[Literal["male", "female", "other"]] = None
@@ -39,7 +37,6 @@ class UpdateProfileRequest(BaseModel):
     ]] = None
     goal: Optional[Literal["lose_fat", "maintain", "gain_weight"]] = None
 
-
 # -- Endpoints ---------------------------------------------------------------
 
 @router.get("/profile", response_model=UserProfileResponse, summary="Lấy thông tin người dùng")
@@ -48,7 +45,6 @@ def get_profile(user_id: str = Depends(get_current_user)):
     if not result.data:
         raise HTTPException(status_code=404, detail="Chưa có profile. Hãy cập nhật thông tin lần đầu.")
     return result.data
-
 
 @router.put("/profile", response_model=UserProfileResponse, summary="Cập nhật thông tin người dùng")
 def update_profile(body: UpdateProfileRequest, user_id: str = Depends(get_current_user)):

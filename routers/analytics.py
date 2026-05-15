@@ -3,8 +3,9 @@ GET  /analytics/calories          — Thống kê calories theo khoảng thời 
 POST /analytics/predict           — Dự đoán xu hướng cân nặng
 """
 
-from typing import Optional, Literal
+from typing import Literal
 from datetime import date, timedelta
+from enum import IntEnum
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from auth import get_current_user
@@ -13,6 +14,11 @@ from database import supabase
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 # -- Schemas -----------------------------------------------------------------
+
+class RangeDays(IntEnum):
+    seven = 7
+    thirty = 30
+    ninety = 90
 
 class DailyCaloriePoint(BaseModel):
     date: str
@@ -28,7 +34,7 @@ class CaloriesStatsResponse(BaseModel):
     daily: list[DailyCaloriePoint]
 
 class PredictWeightRequest(BaseModel):
-    range_days: Literal[7, 30, 90] = Field(7, description="Khoảng thời gian dự đoán")
+    range_days: RangeDays = Field(RangeDays.seven, description="Khoảng thời gian dự đoán: 7, 30, hoặc 90 ngày")
 
 class WeightPredictionResponse(BaseModel):
     range_days: int
@@ -68,7 +74,7 @@ def _calc_bmr(profile: dict) -> float:
     summary="Thống kê calories theo ngày",
 )
 def get_calories_stats(
-    range: Literal[7, 30, 90] = Query(7, description="Số ngày nhìn lại"),
+    range: RangeDays = Query(RangeDays.seven, description="Số ngày nhìn lại: 7, 30, hoặc 90 ngày"),
     user_id: str = Depends(get_current_user),
 ):
     end_date = date.today()
