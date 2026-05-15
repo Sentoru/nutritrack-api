@@ -1,154 +1,126 @@
 from typing import Optional, Literal, List
-from fastapi import FastAPI, HTTPException, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timedelta, timezone
 import joblib
 import pandas as pd
-import time
-import os
-from supabase import create_client, Client
 from dotenv import load_dotenv
-import jwt
-from jwt import PyJWKClient
 
 load_dotenv()
 
+# -- Import shared modules -----------------------------------------------------
+
+from auth import get_current_user
+from database import supabase
+
+# -- Import routers ------------------------------------------------------------
+
+from routers.users import router as users_router
+from routers.health_goals import router as health_goals_router
+from routers.foods import router as foods_router
+from routers.daily_meals import router as daily_meals_router
+from routers.exercises import router as exercises_router
+from routers.daily_exercises import router as daily_exercises_router
+from routers.sync import router as sync_router
+from routers.analytics import router as analytics_router
+
 # =====================
-# SUPABASE CLIENT
-# =====================
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-if not all([SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY]):
-    raise RuntimeError("Thiếu biến môi trường Supabase. Vui lòng kiểm tra tệp .env.")
-
-SUPABASE_JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-# =====================
-# SWAGGER / FASTAPI METADATA
+# SWAGGER METADATA
 # =====================
 description = """
-## Calories Prediction API
+## NutriTrack API
  
-Dự đoán lượng calories tiêu thụ trong quá trình tập luyện dựa trên thông số sinh lý người dùng.
- 
-### Endpoints
- 
-| Endpoint | Auth | Mô tả |
-|---|---|---|
-| `GET /` | Không | Kiểm tra API còn sống không |
-| `POST /predict/calories` | Không | Dự đoán calories |
-| `POST /predictions/save` | Bearer Token | Lưu kết quả prediction |
-| `GET /predictions/history` | Bearer Token | Xem lịch sử predictions |
- 
-### Models
-- **5 features:** sex, age, height, weight, duration -> confidence: **medium**
-- **7 features:** 5 features + heart_rate, body_temp -> confidence: **high**
+API backend cho ứng dụng quản lý dinh dưỡng và sức khỏe cá nhân.
  
 ### Authentication
-Các endpoint có Auth yêu cầu JWT token từ Supabase Auth.
-Click nút **Authorize** bên dưới -> nhập token vào ô Value (không cần gõ "Bearer").
+Tất cả endpoint (trừ `/health` và `/predict/calories`) yêu cầu JWT token từ Supabase Auth.
+Click **Authorize** -> nhập token (không cần gõ "Bearer").
+
+### Modules
+| Module | Mô tả |
+|---|---|
+| Users | Quản lý profile người dùng |
+| Health Goals | Mục tiêu calo/dinh dưỡng hàng ngày |
+| Foods | Tìm kiếm và tạo custom food |
+| Daily Meals | Nhật ký bữa ăn |
+| Exercises | Tìm kiếm và tạo custom exercise |
+| Daily Exercises | Nhật ký bài tập |
+| Health Data Sync | Đồng bộ từ Health Connect (Android) |
+| Analytics | Thống kê và dự đoán xu hướng cân nặng |
+| Prediction (legacy) | Dự đoán calories từ XGBoost model |
 """
 
 app = FastAPI(
-    title="Calories Prediction API",
+    title="NutriTrack API",
     description=description,
-    version="2.0.0",
+    version="3.0.0",
     openapi_tags=[
-        {"name": "Health", "description": "Kiểm tra trạng thái API và models đã sẵn sàng chưa."},
-        {"name": "Prediction", "description": "Dự đoán calories từ XGBoost model."},
-        {"name": "History", "description": "Lưu và xem lịch sử predictions. Yêu cầu xác thực."}
+        {"name": "Health",           "description": "Trạng thái API"},
+        {"name": "Users",            "description": "Profile người dùng"},
+        {"name": "Health Goals",     "description": "Mục tiêu sức khỏe hàng ngày"},
+        {"name": "Foods",            "description": "Tìm kiếm và quản lý món ăn"},
+        {"name": "Daily Meals",      "description": "Nhật ký bữa ăn"},
+        {"name": "Exercises",        "description": "Tìm kiếm và quản lý bài tập"},
+        {"name": "Daily Exercises",  "description": "Nhật ký bài tập"},
+        {"name": "Health Data Sync", "description": "Đồng bộ Health Connect"},
+        {"name": "Analytics",        "description": "Thống kê và dự đoán cân nặng"},
+        {"name": "Prediction",       "description": "XGBoost calories prediction (legacy)"},
+        {"name": "History",          "description": "Lịch sử predictions (legacy)"},
     ]
 )
 
-# =====================
-# SECURITY SCHEME
-# =====================
-bearer_scheme = HTTPBearer(
-    scheme_name="Supabase JWT",
-    description="Nhập access_token từ Supabase Auth."
-)
+# -- Mount routers -----------------------------------------------------
+
+app.include_router(users_router)
+app.include_router(health_goals_router)
+app.include_router(foods_router)
+app.include_router(daily_meals_router)
+app.include_router(exercises_router)
+app.include_router(daily_exercises_router)
+app.include_router(sync_router)
+app.include_router(analytics_router)
 
 # =====================
-# LOAD MODELS
+# LOAD ML MODELS
 # =====================
 try:
     model_7 = joblib.load("models/xgb_calories_7feat.joblib")
     model_5 = joblib.load("models/xgb_calories_5feat.joblib")
     label_encoder = joblib.load("models/label_encoder_sex.joblib")
 except FileNotFoundError as e:
-    raise RuntimeError(f"Không tìm thấy tệp mô hình quan trọng: {e}")
+    raise RuntimeError(f"Không tìm thấy file model: {e}")
 except Exception as e:
-    raise RuntimeError(f"Lỗi khi tải mô hình: {e}")
-
-# =====================
-# AUTH HELPER
-# =====================
-def get_user_id_from_token(credentials: HTTPAuthorizationCredentials) -> str:
-    """
-    Giải mã JWT từ Supabase Auth qua HTTPBearer.
-    """
-    
-    token = credentials.credentials
-
-    try:
-        jwks_client = PyJWKClient(SUPABASE_JWKS_URL)
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-
-        payload = jwt.decode(
-            token, 
-            signing_key.key,
-            algorithms=["ES256"],
-            audience="authenticated",
-        )
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Token Không hợp lệ: Thiếu user ID.")
-        return user_id
-    
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token đã hết hạn.")
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(status_code=401, detail=f"Token không hợp lệ: {str(e)}")
+    raise RuntimeError(f"Lỗi khi tải model: {e}")
 
 # =====================
 # SCHEMAS
 # =====================
 class PredictRequest(BaseModel):
-    sex: Literal["male", "female"] = Field(..., description="Giới tính", example=["male"])
-    age: float = Field(..., gt=0, lt=120, description="Tuổi", example=[30])
-    height: float = Field(..., gt=0, lt=300, description="Chiều cao (cm)", example=[175.0])
-    weight: float = Field(..., gt=0, lt=300, description="Cân nặng (kg)", example=[70.0])
-    duration: float = Field(..., gt=0, description="Thời gian tập luyện (phút)", example=[30])
-    heart_rate: Optional[float] = Field(None, gt=0, lt=250, description="Nhịp tim (bpm) - tùy chọn, bắt buộc đi kèm body_temp", example=[12.0])
-    body_temp: Optional[float] = Field(None, gt=35.0, lt=42.0, description="Nhiệt độ cơ thể (độ C) - tùy chọn, bắt buộc đi kèm heart_rate", example=[37.0])
-
+    sex: Literal["male", "female"] = Field(..., example="male")
+    age: float = Field(..., gt=0, lt=120)
+    height: float = Field(..., gt=0, lt=300)
+    weight: float = Field(..., gt=0, lt=300)
+    duration: float = Field(..., gt=0)
+    heart_rate: Optional[float] = Field(None, gt=0, lt=250)
+    body_temp: Optional[float] = Field(None, gt=35.0, lt=42.0)
+ 
     model_config = {
         "json_schema_extra": {
             "examples": [
-                {
-                    "summary": "5 features (không có smartwatch)",
-                    "value": {"sex": "male", "age": 25, "height": 170.0, "weight": 70.0, "duration": 30.0}
-                },
-                {
-                    "summary": "7 features (có smartwatch)",
-                    "value": {"sex": "male", "age": 25, "height": 170.0, "weight": 70.0, "duration": 30.0, "heart_rate": 120.0, "body_temp": 37.5}
-                }
+                {"summary": "5 features", "value": {"sex": "male", "age": 25, "height": 170.0, "weight": 70.0, "duration": 30.0}},
+                {"summary": "7 features", "value": {"sex": "male", "age": 25, "height": 170.0, "weight": 70.0, "duration": 30.0, "heart_rate": 120.0, "body_temp": 37.5}},
             ]
         }
     }
 
 class PredictResponse(BaseModel):
-    calories_predicted: float = Field(description="Caloriess dự đoán (kcal)")
-    model_used: str = Field(description="Model được sử dụng: '5_features' hoặc '7_features'")
-    confidence: str = Field(description="Mức độ tin cậy của dự đoán: 'medium' cho 5 features, 'high' cho 7 features")
+    calories_predicted: float
+    model_used: str
+    confidence: str
 
 class SavePredictionRequest(BaseModel):
-    predicted_calories: int = Field(..., gt=0, description="Calories từ /predict/calories - tự động làm tròn thành int", example=245.67)
-    features_used: Literal[5, 7] = Field(..., description="Số features đã dùng khi predict", example=7)
+    predicted_calories: int = Field(..., gt=0)
+    features_used: Literal[5, 7]
 
     @field_validator("predicted_calories", mode="before")
     @classmethod
@@ -156,9 +128,9 @@ class SavePredictionRequest(BaseModel):
         return round(float(v))
 
 class SavePredictionResponse(BaseModel):
-    prediction_id: str = Field(description="UUID của prediction vừa lưu vào Supabase")
-    evaluation_date: str = Field(description="Ngày đánh giá prediction (timestamp + 7 ngày)")
-    message: str = Field(description="Thông báo kết quả lưu prediction")
+    prediction_id: str
+    evaluation_date: str
+    message: str
 
 class PredictionHistoryItem(BaseModel):
     id: str
@@ -179,7 +151,7 @@ class GetHistoryResponse(BaseModel):
 # =====================
 @app.get("/")
 def root():
-    return {"message": "Calories Prediction API v2.0 is running"}
+    return {"message": "NutriTrack API v3.0 is running"}
 
 @app.get("/health", tags=["Health"], summary="Health Check", description="Kiểm tra API và models đã sẵn sàng chưa.")
 def health_check():
@@ -192,27 +164,7 @@ def health_check():
         }
     }
 
-# Endpoint chính để dự đoán calories. Hỗ trợ cả 5 và 7 features tùy theo input.
-@app.post(
-    "/predict/calories", 
-    response_model=PredictResponse,
-    tags=["Prediction"],
-    summary="Dự đoán Calories",
-    description="""
-Dự đoán lượng calories tiêu thụ dựa trên thông số sinh lý.
- 
-**Model tự động chọn:**
-- Không có `heart_rate` và `body_temp` -> model 5 features, confidence **medium**
-- Có cả `heart_rate` và `body_temp` -> model 7 features, confidence **high**
- 
-**Lưu ý:** `heart_rate` và `body_temp` phải được cung cấp cùng nhau hoặc bỏ cả hai.
-    """,
-    responses={
-        200: {"description": "Dự đoán thành công"},
-        400: {"description": "Dữ liệu đầu vào không hợp lệ"},
-        500: {"description": "Lỗi server"}
-    }
-)
+@app.post("/predict/calories", response_model=PredictResponse, tags=["Prediction"], summary="Dự đoán Calories")
 def predict_calories(request: PredictRequest):
     has_heart_rate = request.heart_rate is not None
     has_body_temp = request.body_temp is not None
@@ -220,22 +172,18 @@ def predict_calories(request: PredictRequest):
     if has_heart_rate and not has_body_temp:
         raise HTTPException(
             status_code=400, 
-            detail="Dữ liệu nhập không hợp lệ: Đã cung cấp nhịp tim nhưng thiếu nhiệt độ cơ thể. Cả hai đều được yêu cầu cho dữ liệu của đồng hồ thông minh."
+            detail="Cần cung cấp cả heart_rate và body_temp cùng nhau."
         )
     if not has_heart_rate and has_body_temp:
         raise HTTPException(
             status_code=400, 
-            detail="Dữ liệu nhập không hợp lệ: Đã cung cấp nhiệt độ cơ thể nhưng thiếu nhịp tim. Cả hai đều được yêu cầu cho dữ liệu của đồng hồ thông minh."
+            detail="Cần cung cấp cả heart_rate và body_temp cùng nhau."
         )
     
     try:
         sex_val = int(label_encoder.transform([request.sex]))
 
-        # Tạo Dataframe
-        df_start = time.time()
-
         if has_heart_rate and has_body_temp:
-            # 7 FEATURES
             input_features = pd.DataFrame([{
                 "Sex": sex_val,
                 "Age": request.age,
@@ -245,11 +193,10 @@ def predict_calories(request: PredictRequest):
                 "Heart_Rate": request.heart_rate,
                 "Body_Temp": request.body_temp
             }])
-
+            prediction = model_7.predict(input_features)
             model_used = "7_features"
             confidence = "high"
         else:
-            # 5 FEATURES
             input_features = pd.DataFrame([{
                 "Sex": sex_val,
                 "Age": request.age,
@@ -257,53 +204,26 @@ def predict_calories(request: PredictRequest):
                 "Weight": request.weight,
                 "Duration": request.duration
             }])
-
+            prediction = model_5.predict(input_features)
             model_used = "5_features"
             confidence = "medium"
 
-        # Model Prediction
-        prediction = model_7.predict(input_features) if has_heart_rate and has_body_temp else model_5.predict(input_features)
-
-        # Post_processing
-        response_data = PredictResponse(
-            calories_predicted=round(float(prediction), 2),
+        return PredictResponse(
+            calories_predicted=round(float(prediction[0]), 2),
             model_used=model_used,
             confidence=confidence
         )
-
-        return response_data
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Dữ liệu đầu vào không hợp lệ: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi từ máy chủ: {str(e)}")
 
-# Endpoint để lưu kết quả prediction vào Supabase. Gọi sau khi frontend nhận được kết quả từ /predict/calories.
-@app.post(
-    "/predictions/save", 
-    response_model=SavePredictionResponse,
-    tags=["History"],
-    summary="Lưu kết quả Prediction",
-    description="""
-Lưu kết quả prediction vào database sau khi user xác nhận.
- 
-**Yêu cầu:** Bearer token từ Supabase Auth.
- 
-- `evaluation_date` tự động tính = thời điểm lưu + 7 ngày
-- `predicted_calories` nhận float, tự động làm tròn thành int
-- `user_id` lấy từ JWT token, không cần truyền trong body
-    """,
-    responses={
-        200: {"description": "Lưu thành công"},
-        401: {"description": "Token không hợp lệ hoặc hết hạn"},
-        500: {"description": "Lỗi server hoặc database"}
-    }
-)
+@app.post("/predictions/save", response_model=SavePredictionResponse, tags=["History"], summary="Lưu kết quả Prediction")
 def save_prediction(
     request: SavePredictionRequest,
-    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
+    user_id: str = Depends(get_current_user)
 ):
-    user_id = get_user_id_from_token(credentials)
     now = datetime.now(timezone.utc)
     evaluation_date = now + timedelta(days=7)
  
@@ -317,10 +237,8 @@ def save_prediction(
             "status": "pending"
         }).execute()
  
-        prediction_id = result.data[0]["id"]
- 
         return SavePredictionResponse(
-            prediction_id=prediction_id,
+            prediction_id=result.data[0]["id"],
             evaluation_date=evaluation_date.isoformat(),
             message="Đã lưu dự đoán thành công."
         )
@@ -328,32 +246,8 @@ def save_prediction(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Không lưu được dự đoán: {str(e)}")
 
-# Endpoint để lấy lịch sử predictions của user đang đăng nhập. Sắp xếp mới nhất lên đầu.
-@app.get(
-    "/predictions/history", 
-    response_model=GetHistoryResponse,
-    tags=["History"],
-    summary="Lấy lịch sử Predictions",
-    description="""
-Lấy toàn bộ lịch sử predictions của user đang đăng nhập.
- 
-**Yêu cầu:** Bearer token từ Supabase Auth.
- 
-- Kết quả sắp xếp mới nhất trước
-- `actual_weight_change` sẽ là `null` cho đến khi cron job resolve sau 7 ngày
-- `status`: `pending` = chưa đánh giá, `resolved` = đã có kết quả thực tế
-    """,
-    responses={
-        200: {"description": "Trả về danh sách predictions"},
-        401: {"description": "Token không hợp lệ hoặc hết hạn"},
-        500: {"description": "Lỗi server hoặc database"}
-    }
-)
-def get_history(
-    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
-):
-    user_id = get_user_id_from_token(credentials)
- 
+@app.get("/predictions/history", response_model=GetHistoryResponse, tags=["History"], summary="Lấy lịch sử Predictions")
+def get_history(user_id: str = Depends(get_current_user)):
     try:
         result = supabase.table("predictions") \
             .select("id, predicted_calories, actual_weight_change, features_used, status, timestamp, evaluation_date") \
@@ -361,12 +255,10 @@ def get_history(
             .order("timestamp", desc=True) \
             .execute()
  
-        predictions = [PredictionHistoryItem(**item) for item in result.data]
- 
         return GetHistoryResponse(
             user_id=user_id,
-            total=len(predictions),
-            predictions=predictions
+            total=len(result.data),
+            predictions=[PredictionHistoryItem(**item) for item in result.data]
         )
  
     except Exception as e:
