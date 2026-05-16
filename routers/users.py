@@ -17,7 +17,7 @@ class UserProfileResponse(BaseModel):
     user_id: str
     full_name: Optional[str]
     gender: Optional[str]
-    date_of_birth: Optional[str]
+    age: Optional[int]
     height_cm: Optional[float]
     weight_kg: Optional[float]
     goal_weight: Optional[float]
@@ -28,7 +28,7 @@ class UserProfileResponse(BaseModel):
 class UpdateProfileRequest(BaseModel):
     full_name: Optional[str] = Field(None, description="Họ tên")
     gender: Optional[Literal["male", "female", "other"]] = None
-    date_of_birth: Optional[str] = Field(None, description="YYYY-MM-DD")
+    age: Optional[int] = Field(None, gt=0, lt=120)
     height_cm: Optional[float] = Field(None, gt=0, lt=300)
     weight_kg: Optional[float] = Field(None, gt=0, lt=500)
     goal_weight: Optional[float] = Field(None, gt=0, lt=500)
